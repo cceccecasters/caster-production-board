@@ -256,6 +256,23 @@
   .s-wait{color:#6b7c83; border-color:#cfd8d5; background:#f4f6f5;}
   .board[hidden]{display:none;}
 
+  .rec-head{
+    display:flex; align-items:flex-end; gap:12px; padding:14px 16px 12px;
+    border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .rec-title{font-size:14px; font-weight:700; letter-spacing:.03em;}
+  .rec-title #recCount{font-family:var(--mono); font-size:12px; color:var(--muted); font-weight:400; margin-left:4px;}
+  .rec-note{display:block; font-size:10.5px; color:var(--muted); font-weight:400; margin-top:3px; letter-spacing:0;}
+  .rec-actions{margin-left:auto; display:flex; gap:8px;}
+  #recTable .on-board{font-size:9px; color:var(--accent); border:1px solid #9fcac4; background:var(--accent-soft);
+    padding:0 4px; border-radius:2px; margin-left:6px; vertical-align:1px;}
+  .col-more{
+    width:100%; margin-top:2px; padding:8px 6px; font:inherit; font-size:10.5px;
+    border:0; border-top:1px dashed var(--line); background:none; color:var(--accent);
+    cursor:pointer; text-align:center; letter-spacing:.02em;
+  }
+  .col-more:hover{background:var(--accent-soft);}
+
   #toast{
     position:fixed; left:50%; bottom:26px; transform:translate(-50%,10px);
     background:#132229; color:#fff; font-size:12px; padding:9px 16px; border-radius:2px;
@@ -289,6 +306,7 @@
     <button class="tbtn" id="btnRefresh">更新</button>
     <button class="tbtn on" id="btnBoard">看板</button>
     <button class="tbtn" id="btnList">清單</button>
+    <button class="tbtn" id="btnRec">訂單紀錄</button>
   </div>
 </header>
 
@@ -345,6 +363,26 @@
         </tr>
       </thead>
       <tbody id="listBody"></tbody>
+    </table>
+  </div>
+
+  <div class="list-wrap" id="recView" hidden>
+    <div class="rec-head">
+      <div class="rec-title">訂單紀錄 <span id="recCount">—</span>
+        <span class="rec-note">看板只留最近 5 張結案，其餘集中在這裡</span></div>
+      <div class="rec-actions">
+        <button class="btn" id="btnCsv">匯出 CSV</button>
+        <button class="btn primary" id="btnSync">同步到 Google Sheets</button>
+      </div>
+    </div>
+    <table id="recTable">
+      <thead>
+        <tr>
+          <th>結案日</th><th>派工單</th><th>代碼</th><th>品名</th>
+          <th>型式 · 數量</th><th>預交</th><th>交期結果</th><th>工序</th>
+        </tr>
+      </thead>
+      <tbody id="recBody"></tbody>
     </table>
   </div>
 </main>
@@ -691,6 +729,13 @@ const isoDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0'
 const fmtTime = t => { const d = new Date(t); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`; };
 const shortDate = s => s ? s.slice(5).replace('-','/') : '—';
 
+/* ---------------- 設定（接 Google Sheets 時填入） ---------------- */
+const CFG = {
+  endpoint: '',        // Apps Script doGet?action=board（讀看板資料）
+  recordEndpoint: '',  // Apps Script doPost（訂單紀錄歸檔）
+  pollSeconds: 30
+};
+
 /* ---------------- 狀態 ---------------- */
 const STORE_KEY = 'board.orders.v3';
 const state = { q:'', cust:'', owner:'', risk:'', view:'board' };
@@ -714,20 +759,67 @@ function normalizeQty(o){
 }
 
 function normalizeOrder(r){
+  // 舊資料有 MM-DD 格式，統一補成 YYYY-MM-DD
+  const yr = (r.created && r.created.length === 10) ? Number(r.created.slice(0,4)) : 2026;
+  const fd = s => (typeof s === 'string' && /^\d{2}-\d{2}$/.test(s)) ? `${yr}-${s}` : s;
+
   return {
     ...r,
+    created: fd(r.created), due: fd(r.due), forecast: fd(r.forecast),
     custom: !!r.custom,
     ops: (r.ops||[]).map(o => Array.isArray(o)
-      ? { name:o[0], stage:o[1], hours:o[2], pct:o[3], planS:o[4], planE:o[5],
-          actS:o[6], actE:o[7], owner:o[8]||'', note:o[9]||'', lane:o[10]==='side'?'side':'main' }
-      : { lane:'main', ...o }),
+      ? { name:o[0], stage:o[1], hours:o[2], pct:o[3], planS:fd(o[4]), planE:fd(o[5]),
+          actS:fd(o[6]), actE:fd(o[7]), owner:o[8]||'', note:o[9]||'', lane:o[10]==='side'?'side':'main' }
+      : { lane:'main', ...o,
+          planS:fd(o.planS), planE:fd(o.planE), actS:fd(o.actS), actE:fd(o.actE) }),
     issues: r.issues||[], materials: r.materials||[], logs: r.logs||[],
     updated: r.updated ? new Date(r.updated) : now()
   };
 }
 
+/* 結案紀錄示範（讓「看板只留 5 張、其餘轉紀錄」看得到效果） */
+function makeClosedSeeds(){
+  const base = [
+    ['備料（鐵件）','mat',8],['沖壓','press',24],['電鍍（委外）','plate',12],
+    ['腳架組裝','fork',18],['成品組裝','assemble',20],['檢驗','inspect',10],['包裝出貨','pack',8]
+  ];
+  const list = [
+    ['001341','YM091705','A008-YM','3×1.25','PU','紅',['活動'],{'活動':600},30,'2026-09-15','2026-09-30','2026-09-28','陳建宏'],
+    ['001344','YM091712','B033-YM','4×1','TPR','內黑',['側煞'],{'側煞':400},40,'2026-09-18','2026-10-02','2026-10-01','李宗翰'],
+    ['001348','YM091730','B045-YM','5×2','PU','灰',['固定'],{'固定':500},25,'2026-09-24','2026-10-08','2026-10-09','黃振業'],
+    ['001351','YM091806','C088-YM','6×2','尼龍','白',['側煞','前煞'],{'側煞':150,'前煞':150},15,'2026-09-28','2026-10-12','2026-10-12','張美玲'],
+    ['001353','YM091821','A012-YM','3×1.25','PP','黑',['活動'],{'活動':1000},50,'2026-10-01','2026-10-16','2026-10-16','陳建宏'],
+    ['001357','YM091902','B050-YM','5×1.5','TPR','藍',['前煞'],{'前煞':240},12,'2026-10-06','2026-10-21','2026-10-22','林志明']
+  ];
+
+  return list.map(([no,order,code,wheel,material,color,types,typeQty,cartons,created,due,closed,owner])=>{
+    const s0 = dayNum(created), c0 = dayNum(closed);
+    const span = Math.max(base.length, c0 - s0 + 1);
+
+    const ops = base.map(([name,stage,hours],i)=>{
+      const ps = s0 + Math.floor(i*span/base.length);
+      const pe = s0 + Math.floor((i+1)*span/base.length) - 1;
+      const last = i === base.length - 1;
+      return [name, stage, hours, 100, isoNum(ps), isoNum(pe), isoNum(ps), isoNum(last ? c0 : pe), owner, ''];
+    });
+    ops.push(['採購（輪子）','purchase',16,100,isoNum(s0),isoNum(s0+6),isoNum(s0),isoNum(s0+5),'採購','','side']);
+
+    const qty = Object.values(typeQty).reduce((a,b)=>a+b,0);
+
+    return {
+      no, order, code, fork:'425B', plating:'金', screw:'M12×25', up:'15', down:'30',
+      wheel, material, color, types, typeQty, qty, unit:'只', cartons, customer:'', owner,
+      created, due, forecast: closed,
+      packing:'全檢 · 25 只入袋 · 貼標＋大袋',
+      ops, issues:[], materials:[],
+      logs:[{ date: closed.slice(5), by: owner, summary:'出貨完成，結案', todo:'—' }],
+      custom:false
+    };
+  });
+}
+
 function seedOrders(){
-  return R.map(normalizeOrder);
+  return [...R, ...makeClosedSeeds()].map(normalizeOrder);
 }
 function saveOrders(){
   try{
@@ -805,12 +897,17 @@ function derive(o){
 
   if(blocked && risk === 'low') risk = 'mid';
 
-  return {...o, pct, stage, curOp, dueIn, fcIn, wheelsOk, blocked, issueHold, risk, openIssue};
+  // 結案時間：最後一道工序的實際完成日（無資料則取最後更新）
+  const acts = ops.map(x=>x.actE).filter(Boolean).sort();
+  const closedAt = stage === 'closed' ? (acts.length ? acts[acts.length-1] : isoDate(o.updated || now())) : '';
+
+  return {...o, pct, stage, curOp, closedAt, dueIn, fcIn, wheelsOk, blocked, issueHold, risk, openIssue};
 }
 
 let rows = orders.map(derive);
 
 /* ---------------- 渲染 ---------------- */
+const CLOSED_LIMIT = 5;          // 看板「已結案」欄最多顯示張數
 const RISK_TXT = { high:'高風險', mid:'注意', low:'正常', done:'已結案' };
 const RISK_CLS = { high:'b-high', mid:'b-mid', low:'b-low', done:'b-done' };
 
@@ -845,7 +942,11 @@ function renderKPI(){
   const overdue = high.filter(r=>r.dueIn < 0).length;
   const soon = high.length - overdue;
   const avg = active.length ? Math.round(active.reduce((s,r)=>s+r.pct,0)/active.length) : 0;
-  const otd = HISTORY.total ? Math.round(HISTORY.onTime/HISTORY.total*100) : 0;
+  // 準時達交率：以已結案紀錄實算（沒有紀錄時才用示範值）
+  const closedRows = rows.filter(r=>r.stage === 'closed' && r.closedAt);
+  const onTimeN = closedRows.filter(r=>dayNum(r.closedAt) <= dayNum(r.due)).length;
+  const otdBase = closedRows.length ? { onTime: onTimeN, total: closedRows.length } : HISTORY;
+  const otd = otdBase.total ? Math.round(otdBase.onTime/otdBase.total*100) : 0;
 
   const g = id => document.getElementById(id);
   g('kpiWip').textContent = active.length;
@@ -857,7 +958,7 @@ function renderKPI(){
   g('kpiLateSub').textContent = `逾期 ${overdue} · 將逾期 ${soon}`;
   g('kpiAvg').innerHTML = `${avg}<small>%</small>`;
   g('kpiOtd').innerHTML = `${otd}<small>%</small>`;
-  g('kpiOtdSub').textContent = `${HISTORY.onTime}/${HISTORY.total} 準時 · 近 30 日`;
+  g('kpiOtdSub').textContent = `${otdBase.onTime}/${otdBase.total} 準時 · ${closedRows.length ? '已結案' : '近 30 日'}`;
 
   g('cAll').textContent = rows.length;
   g('cHigh').textContent = high.length;
@@ -898,17 +999,34 @@ function renderBoard(){
   const cols = STAGES.filter(s => s.key !== SPECIAL_STAGE || rows.some(r=>r.stage === SPECIAL_STAGE));
   const data = visible();
   document.getElementById('board').innerHTML = cols.map(s=>{
-    const list = data.filter(r=>r.stage === s.key)
-      .sort((a,b)=>({high:0,mid:1,low:2,done:3})[a.risk] - ({high:0,mid:1,low:2,done:3})[b.risk] || a.dueIn - b.dueIn);
+    let list = data.filter(r=>r.stage === s.key);
+
+    if(s.key === 'closed'){
+      // 結案：依結案時間新 → 舊
+      list = list.slice().sort((a,b)=>(b.closedAt || '').localeCompare(a.closedAt || ''));
+    } else {
+      list.sort((a,b)=>({high:0,mid:1,low:2,done:3})[a.risk] - ({high:0,mid:1,low:2,done:3})[b.risk] || a.dueIn - b.dueIn);
+    }
+
+    const total = list.length;
+    const shown = s.key === 'closed' ? list.slice(0, CLOSED_LIMIT) : list;
+
     return `<section class="col">
       <div class="col-head" style="--c:${s.color}">
         <span class="dot"></span><span class="nm">${s.name}</span>
         ${s.note ? `<span class="tag2">${s.note}</span>` : ''}
-        <span class="ct">${list.length}</span>
+        <span class="ct">${total}</span>
       </div>
-      <div class="col-body">${list.length ? list.map(cardHTML).join('') : '<div class="col-empty">—</div>'}</div>
+      <div class="col-body">
+        ${shown.length ? shown.map(cardHTML).join('') : '<div class="col-empty">—</div>'}
+        ${s.key === 'closed' && total > shown.length
+          ? `<button class="col-more" id="moreClosed">其餘 ${total - shown.length} 張已轉入訂單紀錄 →</button>` : ''}
+      </div>
     </section>`;
   }).join('');
+
+  const more = document.getElementById('moreClosed');
+  if(more) more.onclick = () => setView('rec');
 
   document.getElementById('board').querySelectorAll('.card').forEach(el=>{
     el.addEventListener('click', ()=>openDrawer(el.dataset.no));
@@ -936,8 +1054,100 @@ function renderList(){
   });
 }
 
+/* ---------------- 訂單紀錄 ---------------- */
+function recRows(){
+  return rows.filter(r=>r.stage === 'closed')
+    .sort((a,b)=>(b.closedAt || '').localeCompare(a.closedAt || ''));
+}
+
+function renderRec(){
+  const list = recRows();
+  document.getElementById('recCount').textContent = `共 ${list.length} 張`;
+
+  document.getElementById('recBody').innerHTML = list.length ? list.map((r,i)=>{
+    const d = dayNum(r.closedAt) - dayNum(r.due);
+    const res = d <= 0
+      ? '<span class="c-badge b-low">準時</span>'
+      : `<span class="c-badge b-high">逾期 ${d} 天</span>`;
+    const mainOps = r.ops.filter(x=>x.lane !== 'side');
+    const doneN = mainOps.filter(x=>x.pct >= 100).length;
+
+    return `<tr data-no="${r.no}" style="cursor:pointer;">
+      <td class="mono">${r.closedAt}${i < CLOSED_LIMIT ? '<span class="on-board">看板</span>' : ''}</td>
+      <td class="mono">#${r.no}</td>
+      <td class="mono">${r.code}</td>
+      <td>${productName(r)}</td>
+      <td class="mono">${typeText(r)} · ${qtyText(r)}</td>
+      <td class="mono">${shortDate(r.due)}</td>
+      <td>${res}</td>
+      <td class="mono">${doneN}/${mainOps.length}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px;">尚無結案紀錄</td></tr>';
+
+  document.getElementById('recBody').querySelectorAll('tr[data-no]').forEach(tr=>{
+    tr.addEventListener('click', ()=>openDrawer(tr.dataset.no));
+  });
+}
+
+const csvCell = v => {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+};
+
+function recordsCsv(){
+  const head = ['結案日','派工單','訂單號','代碼','品名','型式','數量','單位','箱數',
+                '預交','交期結果','腳架','電鍍顏色','螺絲','上皿','下皿','輪子','材質','顏色','包裝方式','負責人'];
+  const lines = [head.join(',')];
+
+  recRows().forEach(r=>{
+    const d = dayNum(r.closedAt) - dayNum(r.due);
+    lines.push([
+      r.closedAt, r.no, r.order, r.code, productName(r), (r.types || []).join('+'),
+      r.qty, r.unit, r.cartons || '', r.due,
+      d <= 0 ? '準時' : `逾期 ${d} 天`,
+      r.fork, r.plating, r.screw, r.up, r.down, r.wheel, r.material, r.color, r.pack, r.owner
+    ].map(csvCell).join(','));
+  });
+
+  return '\uFEFF' + lines.join('\r\n');
+}
+
+function downloadCsv(){
+  const blob = new Blob([recordsCsv()], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `訂單紀錄_${isoDate(now())}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+}
+
+async function syncRecords(){
+  const list = recRows();
+  if(!list.length){ toast('目前沒有結案紀錄可同步'); return; }
+
+  if(!CFG.recordEndpoint){
+    downloadCsv();
+    toast('尚未接 Google Sheets：已匯出 CSV，可直接貼上試算表');
+    return;
+  }
+
+  try{
+    const res = await fetch(CFG.recordEndpoint, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},   // 避開 CORS preflight
+      body: JSON.stringify({ action:'archive', csv: recordsCsv() })
+    });
+    const j = await res.json();
+    toast(`已同步 ${j.count ?? list.length} 筆到「訂單紀錄」`);
+  }catch(err){
+    downloadCsv();
+    toast('同步失敗，已改為匯出 CSV');
+  }
+}
+
 function renderAll(){
-  renderKPI(); renderFilters(); renderBoard(); renderList();
+  renderKPI(); renderFilters(); renderBoard(); renderList(); renderRec();
   document.getElementById('updated').textContent = `更新 ${fmtTime(lastUpdated)}`;
 }
 
@@ -1394,11 +1604,17 @@ function setView(v){
   state.view = v;
   document.getElementById('board').hidden = v !== 'board';
   document.getElementById('listView').hidden = v !== 'list';
+  document.getElementById('recView').hidden = v !== 'rec';
   document.getElementById('btnBoard').classList.toggle('on', v === 'board');
   document.getElementById('btnList').classList.toggle('on', v === 'list');
+  document.getElementById('btnRec').classList.toggle('on', v === 'rec');
+  if(v === 'rec') renderRec();
 }
 document.getElementById('btnBoard').onclick = ()=>setView('board');
 document.getElementById('btnList').onclick = ()=>setView('list');
+document.getElementById('btnRec').onclick = ()=>setView('rec');
+document.getElementById('btnCsv').onclick = downloadCsv;
+document.getElementById('btnSync').onclick = syncRecords;
 document.getElementById('btnAdd').onclick = openModal;
 document.getElementById('btnCloseModal').onclick = closeModal;
 document.getElementById('btnCancel').onclick = closeModal;
