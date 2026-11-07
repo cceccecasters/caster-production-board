@@ -358,7 +358,7 @@
     <table id="listTable">
       <thead>
         <tr>
-          <th>派工單</th><th>產品代碼</th><th>品名</th><th>數量</th>
+          <th>派工單</th><th>客戶代碼</th><th>品名</th><th>數量</th>
           <th>當前流程</th><th>完成</th><th>預交</th><th>風險</th><th>負責人</th>
         </tr>
       </thead>
@@ -378,7 +378,7 @@
     <table id="recTable">
       <thead>
         <tr>
-          <th>結案日</th><th>派工單</th><th>代碼</th><th>品名</th>
+          <th>結案日</th><th>派工單</th><th>客戶代碼</th><th>品名</th>
           <th>型式 · 數量</th><th>預交</th><th>交期結果</th><th>工序</th>
         </tr>
       </thead>
@@ -406,7 +406,7 @@
         <div class="fld"><label>訂單號</label><input id="fOrder" placeholder="YM092426"></div>
         <div class="fld"><label>製表日 *</label><input id="fDate" type="date"></div>
 
-        <div class="fld"><label>產品代碼 *</label><input id="fCode" placeholder="B033-YM"></div>
+        <div class="fld"><label>客戶代碼 *</label><input id="fCode" placeholder="B033-YM"></div>
         <div class="fld span2"><label>品名（選填，空白自動組合）</label><input id="fName" placeholder="4×1 TPR 活動腳輪"></div>
 
         <div class="fld"><label>腳架 *</label><input id="fFork" placeholder="425B"></div>
@@ -1095,7 +1095,7 @@ const csvCell = v => {
 };
 
 function recordsCsv(){
-  const head = ['結案日','派工單','訂單號','代碼','品名','型式','數量','單位','箱數',
+  const head = ['結案日','派工單','訂單號','客戶代碼','品名','型式','數量','單位','箱數',
                 '預交','交期結果','腳架','電鍍顏色','螺絲','上皿','下皿','輪子','材質','顏色','包裝方式','負責人'];
   const lines = [head.join(',')];
 
@@ -1195,6 +1195,7 @@ function openDrawer(no){
   document.getElementById('drawerBody').innerHTML = `
     <div class="sec-t">派工規格</div>
     <div class="spec">
+      <div><span>客戶代碼</span>${r.code||'—'}</div>
       <div><span>腳架</span>${r.fork||'—'}</div>
       <div><span>電鍍顏色</span>${r.plating||'—'}</div>
       <div><span>螺絲／四角板</span>${r.screw||'—'}</div>
@@ -1508,7 +1509,7 @@ function closeModal(){ modal.hidden = true; }
 
 function createOrder(){
   const g = id => $(id).value.trim();
-  const need = [['fNo','派工單號'],['fCode','產品代碼'],['fFork','腳架'],['fWheel','輪子規格'],
+  const need = [['fNo','派工單號'],['fCode','客戶代碼'],['fFork','腳架'],['fWheel','輪子規格'],
                 ['fDate','製表日'],['fDue','預交日'],['fOwner2','負責人']];
   let bad = null, msg = [];
   need.forEach(([id,label])=>{
@@ -1689,3 +1690,4 @@ document.getElementById('countdown').textContent = `${pollLeft}s`;
 </script>
 </body>
 </html>
+
