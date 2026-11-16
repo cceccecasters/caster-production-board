@@ -1,21 +1,46 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="0; url=board.html">
-<title>彰銓 生產進度看板</title>
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="refresh" content="1; url=https://cceccecasters.github.io/cc-portal/board/">
+<title>生產進度看板已移至新位置</title>
 <style>
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:#eef0ef;
-       font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:#132229;}
-  a{color:#0f766e;font-size:15px;}
-  p{font-size:13px;color:#6b7c83;margin-top:8px;}
+  :root { --ink:#132229; --accent:#0f766e; --muted:#6b7c83; }
+  body {
+    margin:0; min-height:100dvh; display:grid; place-items:center;
+    background:#eef0ef; color:var(--ink);
+    font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    padding:24px; line-height:1.7;
+  }
+  .box { max-width:520px; }
+  .eyebrow {
+    margin:0 0 10px; color:var(--accent); font-size:12px;
+    letter-spacing:.22em; font-weight:700;
+  }
+  h1 { margin:0 0 12px; font-size:24px; letter-spacing:.03em; }
+  p { margin:0 0 18px; color:var(--muted); font-size:14px; }
+  a.go {
+    display:inline-block; padding:11px 18px; background:var(--ink); color:#fff;
+    text-decoration:none; border-radius:4px; font-size:14px;
+  }
+  a.go:hover { background:var(--accent); }
+  .tiny { margin-top:16px; font-size:12px; color:#9aa3ab; }
 </style>
 </head>
 <body>
-  <div style="text-align:center">
-    <div style="font-size:16px;font-weight:700;letter-spacing:.06em">彰銓 · 生產進度看板</div>
-    <p>正在前往看板…　<a href="board.html">若沒有自動跳轉，請點此</a></p>
+  <div class="box">
+    <p class="eyebrow">MOVED · 2026</p>
+    <h1>生產進度看板已移至新位置</h1>
+    <p>看板已整合到公司內部作業系統入口，正在為你跳轉。派工單資料保存在本機瀏覽器，搬家後不會不見。</p>
+    <a class="go" href="https://cceccecasters.github.io/cc-portal/board/">前往生產進度看板 →</a>
+    <p class="tiny">沒有自動跳轉？請點上方按鈕。</p>
   </div>
+  <script>
+    setTimeout(function () {
+      location.replace('https://cceccecasters.github.io/cc-portal/board/');
+    }, 800);
+  </script>
 </body>
 </html>
